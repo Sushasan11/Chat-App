@@ -1,0 +1,73 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+
+<h2>Chat Application</h2>
+
+<div class="chat-container">
+    @foreach (var msg in messages)
+    {
+        <div class="message"><strong>@msg.Username:</strong> @msg.Content</div>
+    }
+</div>
+
+<input @bind="userMessage" placeholder="Type a message..." @onkeypress="HandleKeyPress" />
+<button @onclick="SendMessage">Send</button>
+
+@code {
+    private HubConnection? _hubConnection; // Nullable to avoid warnings
+    private List<Message> messages = new();
+    private string userMessage = "";
+    private string username = $"User{new Random().Next(1000, 9999)}"; // Initialize username
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl("https://localhost:5001/chathub", options =>
+            {
+                options.HttpMessageHandlerFactory = _ => new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+                };
+            })
+            .Build();
+
+        _hubConnection.On<string, string>("ReceiveMessage", (user, message) =>
+        {
+            messages.Add(new Message { Username = user, Content = message });
+            StateHasChanged();
+        });
+
+        await _hubConnection.StartAsync();
+        await LoadChatHistory();
+    }
+
+    private async Task LoadChatHistory()
+    {
+        var httpClient = new HttpClient();
+        var result = await httpClient.GetFromJsonAsync<List<Message>>("https://localhost:5001/api/chat/messages");
+        messages = result ?? new(); // Ensure messages is not null
+    }
+
+    private async Task SendMessage()
+    {
+        if (!string.IsNullOrWhiteSpace(userMessage) && _hubConnection != null)
+        {
+            await _hubConnection.SendAsync("SendMessage", username, userMessage);
+            userMessage = "";
+        }
+    }
+
+    private void HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            SendMessage();
+        }
+    }
+
+    private class Message
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Content { get; set; } = string.Empty;
+    }
+}
